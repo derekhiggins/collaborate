@@ -1,21 +1,41 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 set -eu
 
-# parse install-config.yaml
-# takes two input
-# bmctest.sh [-i ironic-image] in.yaml
-# upstream version will use a metal3 ironic image
+# bmctest.sh tests the hosts from the supplied yaml config file
+# are working with the required ironic opperations (register, power, virtual media)
 
+# use the upstream ironic image by default
 IRONICIMAGE="quay.io/metal3-io/ironic:latest"
-if [ "$1" == "-i" ] ; then
-    IRONICIMAGE=$2
-    shift ; shift
+
+function usage {
+    echo "USAGE:"
+    echo "./$(basename $0) [-i ironic_image] -s pull_secret.json -c config.yaml"
+    echo "ironic image defaults to $IRONICIMAGE"
+}
+
+while getopts "i:s:c:h" opt; do
+    case $opt in
+        h) usage; exit 0 ;;
+        i) IRONICIMAGE=$OPTARG ;;
+        s) PULL_SECRET=$OPTARG ;;
+        c) CONFIGFILE=$OPTARG ;;
+        ?) usage; exit 1 ;;
+    esac
+done
+
+if [[ ! -f ${CONFIGFILE:-} || ! -f ${PULL_SECRET:-} ]]; then
+    echo "invalid config file or pull secret file"
+    usage
+    exit 1
 fi
-INPUTFILE=$1
+
+function timestamp {
+    echo -n "$(date +%T) "
+}
 
 CLEANUPFILE=
-function cleanup(){
+function cleanup {
     if [ "$CLEANUPFILE" != "" ] ; then
         rm -rf $CLEANUPFILE
     fi
@@ -26,19 +46,20 @@ trap "cleanup" EXIT
 ### start ironic and httpd (maybe more in future
 # starting everything inside a single container for now, if we choose to run bmctest
 # from inside a container in future we'll have less to change
-# TODO: will need to take pull secret as a input
-sudo podman run --authfile /opt/dev-scripts/pull_secret.json --rm -d --net host --name bmctest --entrypoint sleep $IRONICIMAGE infinity
+timestamp; echo "starting ironic container"
+sudo podman run --authfile $PULL_SECRET --rm -d --net host --name bmctest --entrypoint sleep $IRONICIMAGE infinity
 # starting ironic, (will need to setup env variables first)
+timestamp; echo "starting ironic process"
 sudo podman exec -d bmctest bash -c "runironic > /tmp/ironic"
 # starting httpd
 # ....
 
 ### for each node in install-config.yaml
-for NODE in $(cat $INPUTFILE | yq .hosts[].name -r) ; do
-    echo "== $NODE =="
-    echo "Verifitying node credentials" # Can be done by just registering node with ironic
-    echo "testing ability to power on/off node" # baremetal node power on X
-    echo "testing vmedia attach" # may need to actually provision a live-iso image
-    echo "verifying node boot device can be set"
-    echo "testing vmedia detach" # may need to actually provision a live-iso image
+for NODE in $(cat $CONFIGFILE | yq .hosts[].name -r) ; do
+    timestamp; echo "== $NODE =="
+    timestamp; echo "Verifitying node credentials" # Can be done by just registering node with ironic
+    timestamp; echo "testing ability to power on/off node" # baremetal node power on X
+    timestamp; echo "testing vmedia attach" # may need to actually provision a live-iso image
+    timestamp; echo "verifying node boot device can be set"
+    timestamp; echo "testing vmedia detach" # may need to actually provision a live-iso image
 done
