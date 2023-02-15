@@ -6,8 +6,9 @@ set -eu
 # create the ironic image from openshift release and then call bmctest.sh
 
 # defaults
-RELEASE='4.13'
-PULL_SECRET='/opt/dev-scripts/pull_secret.json '
+RELEASE="4.13"
+PULL_SECRET="/opt/dev-scripts/pull_secret.json"
+INTERFACE="ostestpr"
 
 function usage {
     echo "USAGE:"
@@ -24,7 +25,7 @@ while getopts "r:c:h" opt; do
     esac
 done
 
-if [[ ! -f ${CONFIGFILE:-} ]]; then
+if [[ ! -e ${CONFIGFILE:-} ]]; then
     echo "invalid config file"
     usage
     exit 1
@@ -49,6 +50,11 @@ function cleanup {
 }
 trap "cleanup" EXIT
 
+# stop dev-scripts httpd container if running
+if [[ ! -z $(sudo podman ps -a --filter "name=httpd-${INTERFACE}" --filter status=running -q) ]]; then
+    timestamp; echo "stopping dev-scripts httpd container"
+    sudo podman rm -f -t 0 httpd-${INTERFACE}
+fi
 
 # Format of this might change before going upstream but for the moment lets use the hosts part of install-config.yaml
 # TODO: may need other values from install-config.yaml e.g. externalBridge...
@@ -57,4 +63,4 @@ timestamp; echo "extracting the hosts from install-config yaml"
 cat $CONFIGFILE | yq -y .platform.baremetal.hosts >> $INPUTFILE
 
 timestamp; echo "calling bmctest.sh"
-$(dirname $0)/bmctest.sh -i $IRONICIMAGE -s $PULL_SECRET -c $INPUTFILE
+$(dirname $0)/bmctest.sh -i $IRONICIMAGE -I $INTERFACE -s $PULL_SECRET -c $INPUTFILE
