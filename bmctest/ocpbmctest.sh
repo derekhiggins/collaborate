@@ -8,7 +8,6 @@ set -eu
 # defaults
 RELEASE="4.13"
 PULL_SECRET="/opt/dev-scripts/pull_secret.json"
-INTERFACE="ostestpr"
 
 function usage {
     echo "USAGE:"
@@ -50,17 +49,24 @@ function cleanup {
 }
 trap "cleanup" EXIT
 
+timestamp; echo "extracting the provisioning interface from $CONFIGFILE"
+INTERFACE=$(yq -r '.platform.baremetal.provisioningBridge' $CONFIGFILE)
+
 # stop dev-scripts httpd container if running
 if [[ ! -z $(sudo podman ps -a --filter "name=httpd-${INTERFACE}" --filter status=running -q) ]]; then
     timestamp; echo "stopping dev-scripts httpd container"
     sudo podman rm -f -t 0 httpd-${INTERFACE}
 fi
 
-# Format of this might change before going upstream but for the moment lets use the hosts part of install-config.yaml
-# TODO: may need other values from install-config.yaml e.g. externalBridge...
-echo "hosts:" > $INPUTFILE
-timestamp; echo "extracting the hosts from install-config yaml"
-cat $CONFIGFILE | yq -y .platform.baremetal.hosts >> $INPUTFILE
+timestamp; echo "extracting the hosts from $CONFIGFILE"
+yq -y '{hosts: [.platform.baremetal.hosts[] | {
+        name,
+        bmc: {
+            address: (.bmc.address | capture("(?<url>https?://[^/]+)(?<path>/.*$)")).url,
+            systemid: (.bmc.address | capture("(?<url>https?://[^/]+)(?<path>/.*$)")).path,
+            username: .bmc.username,
+            password: .bmc.password }
+        }]}' $CONFIGFILE > $INPUTFILE
 
 timestamp; echo "calling bmctest.sh"
 $(dirname $0)/bmctest.sh -i $IRONICIMAGE -I $INTERFACE -s $PULL_SECRET -c $INPUTFILE

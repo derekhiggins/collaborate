@@ -49,8 +49,7 @@ function cleanup {
     if [ "$CLEANUPFILE" != "" ] ; then
         rm -rf $CLEANUPFILE
     fi
-#    TODO remove comment
-#    sudo podman rm -f -t 0 bmctest || true
+    sudo podman rm -f -t 0 bmctest || true
 }
 trap "cleanup" EXIT
 
