@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -eu
+set -u
 
 # bmctest.sh tests the hosts from the supplied yaml config file
 # are working with the required ironic opperations (register, power, virtual media)
@@ -57,7 +57,6 @@ timestamp; echo "checking / getting ISO image"
 if sudo [ ! -e /srv/ironic/html/images/${ISO} ]; then
     sudo mkdir -p /srv/ironic/html/images/
     sudo curl -L $ISO_URL -o /srv/ironic/html/images/${ISO}
-    sudo md5sum /srv/ironic/html/images${ISO} | awk '{print $1}' | sudo dd of=/srv/ironic/html/images/${ISO}.md5sum
 fi
 
 # start ironic and httpd (maybe more in future starting everything inside a
@@ -73,12 +72,52 @@ sudo podman exec -d bmctest bash -c "runironic > /tmp/ironic.log 2>&1"
 timestamp; echo "starting httpd process"
 sudo podman exec -d bmctest bash -c "/bin/runhttpd > /tmp/httpd.log 2>&1"
 
-### for each node in install-config.yaml
-for NODE in $(cat $CONFIGFILE | yq .hosts[].name -r) ; do
-    timestamp; echo "== $NODE =="
-    timestamp; echo "Verifitying node credentials" # Can be done by just registering node with ironic
-    timestamp; echo "testing ability to power on/off node" # baremetal node power on X
+EXIT=0
+declare -a ERRORS
+
+function manage {
+    local name=$1; local address=$2; local systemid=$3; local user=$4; local pass=$5
+    baremetal node create --boot-interface redfish-virtual-media --driver redfish \
+        --driver-info redfish_address=${address} \
+        --driver-info redfish_system_id=${systemid} \
+        --driver-info redfish_verify_ca=False --driver-info redfish_username=${user} --driver-info redfish_password=${pass} \
+        --property capabilities='boot_mode:bios' --name ${name} > /dev/null
+    baremetal node manage ${name} --wait 60
+    if [ $? -ne 0 ]; then
+        EXIT=$(($EXIT + 1))
+        ERRORS+=("can not manage node $name")
+        return 1
+    fi
+}
+
+function power {
+    local name=$1
+    for power in off on; do
+        baremetal node power $power ${name} --power-timeout 60
+        if [ $? -ne 0 ]; then
+            EXIT=$(($EXIT + 1))
+            ERRORS+=("can not power $power $name")
+            return 1
+        fi
+    done
+}
+
+while read NAME ADDRESS SYSTEMID USERNAME PASSWORD; do
+    echo; timestamp; echo "===== $NAME ====="
+
+    timestamp; echo "attempting to manage $NAME (check address & credentials)"
+    manage $NAME $ADDRESS $SYSTEMID $USERNAME $PASSWORD && echo "    success" || continue
+
+    timestamp; echo "testing ability to power on/off $NAME"
+    power $NAME && echo "    success"
+
     timestamp; echo "testing vmedia attach" # may need to actually provision a live-iso image
     timestamp; echo "verifying node boot device can be set"
     timestamp; echo "testing vmedia detach" # may need to actually provision a live-iso image
+done < <(yq -r '.hosts[] | "\(.name) \(.bmc.address) \(.bmc.systemid) \(.bmc.username) \(.bmc.password)"' $CONFIGFILE)
+
+echo; timestamp; echo "========== Found $EXIT errors =========="
+for err in ${ERRORS[@]}; do
+    echo $err
 done
+exit $EXIT
