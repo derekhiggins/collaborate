@@ -7,6 +7,7 @@ set -eu
 
 # defaults
 RELEASE="4.13"
+# FIXME get pull secret from install-config instead?
 PULL_SECRET="/opt/dev-scripts/pull_secret.json"
 
 function usage {

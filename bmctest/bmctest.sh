@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+# FIXME - exit immediatly on error or go through all and list errors?
 set -u
 
 # bmctest.sh tests the hosts from the supplied yaml config file
@@ -43,9 +44,10 @@ function timestamp {
     echo -n "$(date +%T) "
 }
 
+# FIXME what is CLEANUPFILE for?
 CLEANUPFILE=
 function cleanup {
-    timestamp; echo "cleaning up"
+    timestamp; echo "cleaning up - removing container"
     if [ "$CLEANUPFILE" != "" ] ; then
         rm -rf $CLEANUPFILE
     fi
@@ -53,6 +55,10 @@ function cleanup {
 }
 trap "cleanup" EXIT
 
+# FIXME - do we even need to manually download and serve the ISO over http?
+# https://docs.openstack.org/ironic/latest/admin/ramdisk-boot.html says it does
+# so automatically: "By default the Bare Metal service will cache the ISO
+# locally and serve from its HTTP server"
 timestamp; echo "checking / getting ISO image"
 if sudo [ ! -e /srv/ironic/html/images/${ISO} ]; then
     sudo mkdir -p /srv/ironic/html/images/
@@ -91,6 +97,7 @@ function manage {
 }
 
 function power {
+    # FIXME - leave node in power on or off?
     local name=$1
     for power in off on; do
         baremetal node power $power ${name} --power-timeout 60
@@ -102,6 +109,7 @@ function power {
     done
 }
 
+# FIXME - use gnu parallel or something of the sort
 while read NAME ADDRESS SYSTEMID USERNAME PASSWORD; do
     echo; timestamp; echo "===== $NAME ====="
 
