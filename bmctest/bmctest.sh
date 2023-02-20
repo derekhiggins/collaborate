@@ -6,6 +6,7 @@ set -u
 # bmctest.sh tests the hosts from the supplied yaml config file
 # are working with the required ironic opperations (register, power, virtual media)
 
+# FIXME use fedora or other Red Hat image
 ISO="archlinux-2023.02.01-x86_64.iso"
 ISO_URL="https://geo.mirror.pkgbuild.com/iso/2023.02.01/$ISO"
 # use the upstream ironic image by default
@@ -51,7 +52,7 @@ function cleanup {
     if [ "$CLEANUPFILE" != "" ] ; then
         rm -rf $CLEANUPFILE
     fi
-    sudo podman rm -f -t 0 bmctest || true
+    #sudo podman rm -f -t 0 bmctest || true
 }
 trap "cleanup" EXIT
 
@@ -79,7 +80,7 @@ timestamp; echo "starting httpd process"
 sudo podman exec -d bmctest bash -c "/bin/runhttpd > /tmp/httpd.log 2>&1"
 
 EXIT=0
-declare -a ERRORS
+ERRORS=""
 
 function manage {
     local name=$1; local address=$2; local systemid=$3; local user=$4; local pass=$5
@@ -91,7 +92,7 @@ function manage {
     baremetal node manage ${name} --wait 60
     if [ $? -ne 0 ]; then
         EXIT=$(($EXIT + 1))
-        ERRORS+=("can not manage node $name")
+        ERRORS+="can not manage node ${name}\n"
         return 1
     fi
 }
@@ -103,7 +104,7 @@ function power {
         baremetal node power $power ${name} --power-timeout 60
         if [ $? -ne 0 ]; then
             EXIT=$(($EXIT + 1))
-            ERRORS+=("can not power $power $name")
+            ERRORS+="can not power $power ${name}\n"
             return 1
         fi
     done
@@ -125,7 +126,5 @@ while read NAME ADDRESS SYSTEMID USERNAME PASSWORD; do
 done < <(yq -r '.hosts[] | "\(.name) \(.bmc.address) \(.bmc.systemid) \(.bmc.username) \(.bmc.password)"' $CONFIGFILE)
 
 echo; timestamp; echo "========== Found $EXIT errors =========="
-for err in ${ERRORS[@]}; do
-    echo $err
-done
+echo -e $ERRORS
 exit $EXIT
