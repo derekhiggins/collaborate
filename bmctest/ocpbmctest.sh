@@ -53,6 +53,10 @@ trap "cleanup" EXIT
 
 timestamp "extracting the provisioning interface from $CONFIGFILE"
 INTERFACE=$(yq -r '.platform.baremetal.provisioningBridge' $CONFIGFILE)
+if [[ -z $INTERFACE || $INTERFACE = "Disabled" ]]; then
+    timestamp "WARNING: found no provision interface in config, defaulting to 'ostestbm'"
+    INTERFACE="ostestbm"
+fi
 
 # stop dev-scripts httpd container if running
 if [[ ! -z $(sudo podman ps -a --filter "name=httpd-${INTERFACE}" --filter status=running -q) ]]; then
