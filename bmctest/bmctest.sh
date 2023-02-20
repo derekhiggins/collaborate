@@ -43,12 +43,13 @@ fi
 
 function timestamp {
     echo -n "$(date +%T) "
+    echo $1
 }
 
 # FIXME what is CLEANUPFILE for?
 CLEANUPFILE=
 function cleanup {
-    timestamp; echo "cleaning up - removing container"
+    timestamp "cleaning up - removing container"
     if [ "$CLEANUPFILE" != "" ] ; then
         rm -rf $CLEANUPFILE
     fi
@@ -60,7 +61,7 @@ trap "cleanup" EXIT
 # https://docs.openstack.org/ironic/latest/admin/ramdisk-boot.html says it does
 # so automatically: "By default the Bare Metal service will cache the ISO
 # locally and serve from its HTTP server"
-timestamp; echo "checking / getting ISO image"
+timestamp "checking / getting ISO image"
 if sudo [ ! -e /srv/ironic/html/images/${ISO} ]; then
     sudo mkdir -p /srv/ironic/html/images/
     sudo curl -L $ISO_URL -o /srv/ironic/html/images/${ISO}
@@ -69,14 +70,14 @@ fi
 # start ironic and httpd (maybe more in future starting everything inside a
 # single container for now, if we choose to run bmctest from inside a container
 # in future we'll have less to change
-timestamp; echo "starting ironic container"
+timestamp "starting ironic container"
 sudo podman run --authfile $PULL_SECRET --rm -d --net host --env PROVISIONING_INTERFACE=${INTERFACE} \
     -v /srv/ironic:/shared --name bmctest --entrypoint sleep $IRONICIMAGE infinity
 # starting ironic
-timestamp; echo "starting ironic process"
+timestamp "starting ironic process"
 sudo podman exec -d bmctest bash -c "runironic > /tmp/ironic.log 2>&1"
 # starting httpd
-timestamp; echo "starting httpd process"
+timestamp "starting httpd process"
 sudo podman exec -d bmctest bash -c "/bin/runhttpd > /tmp/httpd.log 2>&1"
 
 EXIT=0
@@ -112,19 +113,19 @@ function power {
 
 # FIXME - use gnu parallel or something of the sort
 while read NAME ADDRESS SYSTEMID USERNAME PASSWORD; do
-    echo; timestamp; echo "===== $NAME ====="
+    echo; timestamp "===== $NAME ====="
 
-    timestamp; echo "attempting to manage $NAME (check address & credentials)"
+    timestamp "attempting to manage $NAME (check address & credentials)"
     manage $NAME $ADDRESS $SYSTEMID $USERNAME $PASSWORD && echo "    success" || continue
 
-    timestamp; echo "testing ability to power on/off $NAME"
+    timestamp "testing ability to power on/off $NAME"
     power $NAME && echo "    success"
 
-    timestamp; echo "testing vmedia attach" # may need to actually provision a live-iso image
-    timestamp; echo "verifying node boot device can be set"
-    timestamp; echo "testing vmedia detach" # may need to actually provision a live-iso image
+    timestamp "testing vmedia attach" # may need to actually provision a live-iso image
+    timestamp "verifying node boot device can be set"
+    timestamp "testing vmedia detach" # may need to actually provision a live-iso image
 done < <(yq -r '.hosts[] | "\(.name) \(.bmc.address) \(.bmc.systemid) \(.bmc.username) \(.bmc.password)"' $CONFIGFILE)
 
-echo; timestamp; echo "========== Found $EXIT errors =========="
+echo; timestamp "========== Found $EXIT errors =========="
 echo -e $ERRORS
 exit $EXIT

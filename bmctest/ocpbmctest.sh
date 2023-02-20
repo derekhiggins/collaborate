@@ -33,15 +33,16 @@ fi
 
 function timestamp {
     echo -n "$(date +%T) "
+    echo $1
 }
 
-timestamp; echo "getting the release image url"
+timestamp "getting the release image url"
 RELEASEIMAGE=$(curl -s https://mirror.openshift.com/pub/openshift-v4/clients/ocp-dev-preview/latest-${RELEASE}/release.txt \
     | grep -o 'quay.io/openshift-release-dev/ocp-release.*')
 
 
 # upstream version will use a metal3 ironic image
-timestamp; echo "creating the ironic image"
+timestamp "creating the ironic image"
 IRONICIMAGE=$(podman run --rm $RELEASEIMAGE image ironic)
 
 INPUTFILE=$(mktemp)
@@ -50,16 +51,16 @@ function cleanup {
 }
 trap "cleanup" EXIT
 
-timestamp; echo "extracting the provisioning interface from $CONFIGFILE"
+timestamp "extracting the provisioning interface from $CONFIGFILE"
 INTERFACE=$(yq -r '.platform.baremetal.provisioningBridge' $CONFIGFILE)
 
 # stop dev-scripts httpd container if running
 if [[ ! -z $(sudo podman ps -a --filter "name=httpd-${INTERFACE}" --filter status=running -q) ]]; then
-    timestamp; echo "stopping dev-scripts httpd container"
+    timestamp "stopping dev-scripts httpd container"
     sudo podman rm -f -t 0 httpd-${INTERFACE}
 fi
 
-timestamp; echo "extracting the hosts from $CONFIGFILE"
+timestamp "extracting the hosts from $CONFIGFILE"
 yq -y '{hosts: [.platform.baremetal.hosts[] | {
         name,
         bmc: {
@@ -69,5 +70,5 @@ yq -y '{hosts: [.platform.baremetal.hosts[] | {
             password: .bmc.password }
         }]}' $CONFIGFILE > $INPUTFILE
 
-timestamp; echo "calling bmctest.sh"
+timestamp "calling bmctest.sh"
 $(dirname $0)/bmctest.sh -i $IRONICIMAGE -I $INTERFACE -s $PULL_SECRET -c $INPUTFILE
