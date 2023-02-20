@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 
-# FIXME - exit immediatly on error or go through all and list errors?
-set -u
+set -eu
 
 # bmctest.sh tests the hosts from the supplied yaml config file
 # are working with the required ironic opperations (register, power, virtual media)
@@ -14,7 +13,7 @@ IRONICIMAGE="quay.io/metal3-io/ironic:latest"
 
 function usage {
     echo "USAGE:"
-    echo "./$(basename $0) [-i ironic_image] -I interface -s pull_secret.json -c config.yaml"
+    echo "./$(basename "$0") [-i ironic_image] -I interface -s pull_secret.json -c config.yaml"
     echo "ironic image defaults to $IRONICIMAGE"
 }
 
@@ -43,7 +42,7 @@ fi
 
 function timestamp {
     echo -n "$(date +%T) "
-    echo $1
+    echo "$1"
 }
 
 # FIXME what is CLEANUPFILE for?
@@ -71,8 +70,8 @@ fi
 # single container for now, if we choose to run bmctest from inside a container
 # in future we'll have less to change
 timestamp "starting ironic container"
-sudo podman run --authfile $PULL_SECRET --rm -d --net host --env PROVISIONING_INTERFACE=${INTERFACE} \
-    -v /srv/ironic:/shared --name bmctest --entrypoint sleep $IRONICIMAGE infinity
+sudo podman run --authfile "$PULL_SECRET" --rm -d --net host --env PROVISIONING_INTERFACE="${INTERFACE}" \
+    -v /srv/ironic:/shared --name bmctest --entrypoint sleep "$IRONICIMAGE" infinity
 # starting ironic
 timestamp "starting ironic process"
 sudo podman exec -d bmctest bash -c "runironic > /tmp/ironic.log 2>&1"
@@ -86,13 +85,12 @@ ERRORS=""
 function manage {
     local name=$1; local address=$2; local systemid=$3; local user=$4; local pass=$5
     baremetal node create --boot-interface redfish-virtual-media --driver redfish \
-        --driver-info redfish_address=${address} \
-        --driver-info redfish_system_id=${systemid} \
-        --driver-info redfish_verify_ca=False --driver-info redfish_username=${user} --driver-info redfish_password=${pass} \
-        --property capabilities='boot_mode:bios' --name ${name} > /dev/null
-    baremetal node manage ${name} --wait 60
-    if [ $? -ne 0 ]; then
-        EXIT=$(($EXIT + 1))
+        --driver-info redfish_address="${address}" \
+        --driver-info redfish_system_id="${systemid}" \
+        --driver-info redfish_verify_ca=False --driver-info redfish_username="${user}" --driver-info redfish_password="${pass}" \
+        --property capabilities='boot_mode:bios' --name "${name}" > /dev/null
+    if ! baremetal node manage "${name}" --wait 60; then
+        EXIT=$((EXIT + 1))
         ERRORS+="can not manage node ${name}\n"
         return 1
     fi
@@ -102,9 +100,8 @@ function power {
     # FIXME - leave node in power on or off?
     local name=$1
     for power in off on; do
-        baremetal node power $power ${name} --power-timeout 60
-        if [ $? -ne 0 ]; then
-            EXIT=$(($EXIT + 1))
+        if ! baremetal node power "$power" "$name" --power-timeout 60; then
+            EXIT=$((EXIT + 1))
             ERRORS+="can not power $power ${name}\n"
             return 1
         fi
@@ -112,20 +109,24 @@ function power {
 }
 
 # FIXME - use gnu parallel or something of the sort
-while read NAME ADDRESS SYSTEMID USERNAME PASSWORD; do
+while read -r NAME ADDRESS SYSTEMID USERNAME PASSWORD; do
     echo; timestamp "===== $NAME ====="
 
     timestamp "attempting to manage $NAME (check address & credentials)"
-    manage $NAME $ADDRESS $SYSTEMID $USERNAME $PASSWORD && echo "    success" || continue
+    if manage "$NAME" "$ADDRESS" "$SYSTEMID" "$USERNAME" "$PASSWORD"; then
+       echo "    success"
+    else
+       continue
+    fi
 
     timestamp "testing ability to power on/off $NAME"
-    power $NAME && echo "    success"
+    power "$NAME" && echo "    success"
 
     timestamp "testing vmedia attach" # may need to actually provision a live-iso image
     timestamp "verifying node boot device can be set"
     timestamp "testing vmedia detach" # may need to actually provision a live-iso image
-done < <(yq -r '.hosts[] | "\(.name) \(.bmc.address) \(.bmc.systemid) \(.bmc.username) \(.bmc.password)"' $CONFIGFILE)
+done < <(yq -r '.hosts[] | "\(.name) \(.bmc.address) \(.bmc.systemid) \(.bmc.username) \(.bmc.password)"' "$CONFIGFILE")
 
 echo; timestamp "========== Found $EXIT errors =========="
-echo -e $ERRORS
+echo -e "$ERRORS"
 exit $EXIT

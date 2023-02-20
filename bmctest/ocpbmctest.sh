@@ -12,7 +12,7 @@ PULL_SECRET="/opt/dev-scripts/pull_secret.json"
 
 function usage {
     echo "USAGE:"
-    echo "./$(basename $0) [-r release_version] -c install-config.yaml"
+    echo "./$(basename "$0") [-r release_version] -c install-config.yaml"
     echo "release version defaults to $RELEASE"
 }
 
@@ -33,33 +33,33 @@ fi
 
 function timestamp {
     echo -n "$(date +%T) "
-    echo $1
+    echo "$1"
 }
 
 timestamp "getting the release image url"
-RELEASEIMAGE=$(curl -s https://mirror.openshift.com/pub/openshift-v4/clients/ocp-dev-preview/latest-${RELEASE}/release.txt \
+RELEASEIMAGE=$(curl -s https://mirror.openshift.com/pub/openshift-v4/clients/ocp-dev-preview/latest-"${RELEASE}"/release.txt \
     | grep -o 'quay.io/openshift-release-dev/ocp-release.*')
 
 
 # upstream version will use a metal3 ironic image
 timestamp "creating the ironic image"
-IRONICIMAGE=$(podman run --rm $RELEASEIMAGE image ironic)
+IRONICIMAGE=$(podman run --rm "$RELEASEIMAGE" image ironic)
 
 INPUTFILE=$(mktemp)
 function cleanup {
-    rm -rf $INPUTFILE
+    rm -rf "$INPUTFILE"
 }
 trap "cleanup" EXIT
 
 timestamp "extracting the provisioning interface from $CONFIGFILE"
-INTERFACE=$(yq -r '.platform.baremetal.provisioningBridge' $CONFIGFILE)
+INTERFACE=$(yq -r '.platform.baremetal.provisioningBridge' "$CONFIGFILE")
 if [[ -z $INTERFACE || $INTERFACE = "Disabled" ]]; then
     timestamp "WARNING: found no provision interface in config, defaulting to 'ostestbm'"
     INTERFACE="ostestbm"
 fi
 
 # stop dev-scripts httpd container if running
-if [[ ! -z $(sudo podman ps -a --filter "name=httpd-${INTERFACE}" --filter status=running -q) ]]; then
+if [[ -n $(sudo podman ps -a --filter "name=httpd-${INTERFACE}" --filter status=running -q) ]]; then
     timestamp "stopping dev-scripts httpd container"
     sudo podman rm -f -t 0 httpd-${INTERFACE}
 fi
@@ -72,7 +72,7 @@ yq -y '{hosts: [.platform.baremetal.hosts[] | {
             systemid: (.bmc.address | capture("(?<url>https?://[^/]+)(?<path>/.*$)")).path,
             username: .bmc.username,
             password: .bmc.password }
-        }]}' $CONFIGFILE > $INPUTFILE
+        }]}' "$CONFIGFILE" > "$INPUTFILE"
 
 timestamp "calling bmctest.sh"
-$(dirname $0)/bmctest.sh -i $IRONICIMAGE -I $INTERFACE -s $PULL_SECRET -c $INPUTFILE
+"$(dirname "$0")"/bmctest.sh -i "$IRONICIMAGE" -I "$INTERFACE" -s "$PULL_SECRET" -c "$INPUTFILE"
