@@ -56,10 +56,8 @@ function cleanup {
 }
 trap "cleanup" EXIT
 
-# FIXME - do we even need to manually download and serve the ISO over http?
-# https://docs.openstack.org/ironic/latest/admin/ramdisk-boot.html says it does
-# so automatically: "By default the Bare Metal service will cache the ISO
-# locally and serve from its HTTP server"
+# FIXME -  ironic can download from internet and cache iso
+# but it is slow and happens every time we delete the container
 timestamp "checking / getting ISO image"
 if sudo [ ! -e /srv/ironic/html/images/${ISO} ]; then
     sudo mkdir -p /srv/ironic/html/images/
@@ -82,13 +80,16 @@ sudo podman exec -d bmctest bash -c "/bin/runhttpd > /tmp/httpd.log 2>&1"
 EXIT=0
 ERRORS=""
 
+# FIXME - take --wait as argument to script
+# create function for repeated "if EXIT ERRORS return" code
 function manage {
     local name=$1; local address=$2; local systemid=$3; local user=$4; local pass=$5
     baremetal node create --boot-interface redfish-virtual-media --driver redfish \
         --driver-info redfish_address="${address}" \
         --driver-info redfish_system_id="${systemid}" \
         --driver-info redfish_verify_ca=False --driver-info redfish_username="${user}" --driver-info redfish_password="${pass}" \
-        --property capabilities='boot_mode:bios' --name "${name}" > /dev/null
+        --property capabilities='boot_mode:uefi' --name "${name}" > /dev/null
+    echo -n "    " # indent baremetal output
     if ! baremetal node manage "${name}" --wait 60; then
         EXIT=$((EXIT + 1))
         ERRORS+="can not manage node ${name}\n"
@@ -108,6 +109,41 @@ function power {
     done
 }
 
+function boot_vmedia {
+    local name=$1
+    baremetal node set "$name" --boot-interface redfish-virtual-media --deploy-interface ramdisk \
+    --instance-info boot_iso="http://localhost/images/${ISO}"
+    baremetal node set "$name" --no-automated-clean
+    echo -n "    " # indent baremetal output
+    baremetal node provide --wait 60 "$name"
+    echo -n "    " # indent baremetal output
+    if ! baremetal node deploy --wait 120 "$name"; then
+        EXIT=$((EXIT + 1))
+        ERROS+="failed to boot node $name from ISO"
+        return 1
+    fi
+}
+
+function boot_device {
+    local name=$1
+    # this is called after boot_vmedia which sets the boot device as cdrom
+    # so we test with setting it to pxe
+    if ! baremetal node boot device set "$name" pxe; then
+        EXIT=$((EXIT + 1))
+        ERROS+="failed to switch boot device to PXE on $name"
+        return 1
+    fi
+}
+
+function eject_media {
+   local name=$1
+   if ! baremetal node passthru call "$name" eject_vmedia; then
+        EXIT=$((EXIT + 1))
+        ERROS+="failed to eject media on $name"
+        return 1
+    fi
+}
+
 # FIXME - use gnu parallel or something of the sort
 while read -r NAME ADDRESS SYSTEMID USERNAME PASSWORD; do
     echo; timestamp "===== $NAME ====="
@@ -122,9 +158,18 @@ while read -r NAME ADDRESS SYSTEMID USERNAME PASSWORD; do
     timestamp "testing ability to power on/off $NAME"
     power "$NAME" && echo "    success"
 
-    timestamp "testing vmedia attach" # may need to actually provision a live-iso image
+    timestamp "testing booting from redfish-virtual-media on $NAME"
+    if boot_vmedia "$NAME"; then
+        echo "    success"
+    else
+       continue
+    fi
+
     timestamp "verifying node boot device can be set"
+    boot_device "$NAME" && echo "    success"
+
     timestamp "testing vmedia detach" # may need to actually provision a live-iso image
+    eject_media "$NAME" && echo "    success"
 done < <(yq -r '.hosts[] | "\(.name) \(.bmc.address) \(.bmc.systemid) \(.bmc.username) \(.bmc.password)"' "$CONFIGFILE")
 
 echo; timestamp "========== Found $EXIT errors =========="
