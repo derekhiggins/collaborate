@@ -45,14 +45,9 @@ function timestamp {
     echo "$1"
 }
 
-# FIXME what is CLEANUPFILE for?
-CLEANUPFILE=
 function cleanup {
     timestamp "cleaning up - removing container"
-    if [ "$CLEANUPFILE" != "" ] ; then
-        rm -rf $CLEANUPFILE
-    fi
-    sudo podman rm -f -t 0 bmctest || true
+    sudo podman rm -f -t 0 bmctest
 }
 trap "cleanup" EXIT
 
@@ -64,15 +59,26 @@ if sudo [ ! -e /srv/ironic/html/images/${ISO} ]; then
     sudo curl -L $ISO_URL -o /srv/ironic/html/images/${ISO}
 fi
 
+timestamp "checking / cleaning old container"
+sudo podman rm -f -t 0 bmctest
+
+timestamp "checking TCP 80 port is not already in use"
+if nc -z localhost 80; then
+    echo "ERROR: HTTP port already in use, exiting"
+    exit 1
+fi
+
 # start ironic and httpd (maybe more in future starting everything inside a
 # single container for now, if we choose to run bmctest from inside a container
 # in future we'll have less to change
 timestamp "starting ironic container"
 sudo podman run --authfile "$PULL_SECRET" --rm -d --net host --env PROVISIONING_INTERFACE="${INTERFACE}" \
     -v /srv/ironic:/shared --name bmctest --entrypoint sleep "$IRONICIMAGE" infinity
+
 # starting ironic
 timestamp "starting ironic process"
 sudo podman exec -d bmctest bash -c "runironic > /tmp/ironic.log 2>&1"
+
 # starting httpd
 timestamp "starting httpd process"
 sudo podman exec -d bmctest bash -c "/bin/runhttpd > /tmp/httpd.log 2>&1"

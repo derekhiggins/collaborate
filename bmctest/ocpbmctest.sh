@@ -58,12 +58,6 @@ if [[ -z $INTERFACE || $INTERFACE = "Disabled" ]]; then
     INTERFACE="ostestbm"
 fi
 
-# stop dev-scripts httpd container if running
-if [[ -n $(sudo podman ps -a --filter "name=httpd-${INTERFACE}" --filter status=running -q) ]]; then
-    timestamp "stopping dev-scripts httpd container"
-    sudo podman rm -f -t 0 httpd-${INTERFACE}
-fi
-
 timestamp "extracting the hosts from $CONFIGFILE"
 yq -y '{hosts: [.platform.baremetal.hosts[] | {
         name,
