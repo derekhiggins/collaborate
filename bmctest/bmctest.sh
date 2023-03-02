@@ -34,6 +34,7 @@ if [[ -z ${INTERFACE:-} ]]; then
     exit 1
 fi
 
+# FIXME pull secret not needed when using upstream ironic image
 if [[ ! -e ${CONFIGFILE:-} || ! -e ${PULL_SECRET:-} ]]; then
     echo "invalid config file or pull secret file"
     usage
@@ -51,8 +52,6 @@ function cleanup {
 }
 trap "cleanup" EXIT
 
-# FIXME -  ironic can download from internet and cache iso
-# but it is slow and happens every time we delete the container
 timestamp "checking / getting ISO image"
 if sudo [ ! -e /srv/ironic/html/images/${ISO} ]; then
     sudo mkdir -p /srv/ironic/html/images/
@@ -68,9 +67,7 @@ if nc -z localhost 80; then
     exit 1
 fi
 
-# start ironic and httpd (maybe more in future starting everything inside a
-# single container for now, if we choose to run bmctest from inside a container
-# in future we'll have less to change
+# FIXME run baremetal cli and configure it with clouds.yaml inside the container
 timestamp "starting ironic container"
 sudo podman run --authfile "$PULL_SECRET" --rm -d --net host --env PROVISIONING_INTERFACE="${INTERFACE}" \
     -v /srv/ironic:/shared --name bmctest --entrypoint sleep "$IRONICIMAGE" infinity
@@ -104,9 +101,8 @@ function manage {
 }
 
 function power {
-    # FIXME - leave node in power on or off?
     local name=$1
-    for power in off on; do
+    for power in on off; do
         if ! baremetal node power "$power" "$name" --power-timeout 60; then
             EXIT=$((EXIT + 1))
             ERRORS+="can not power $power ${name}\n"
@@ -117,6 +113,7 @@ function power {
 
 function boot_vmedia {
     local name=$1
+    # FIXME for Dell we might need idrac-virtualmedia
     baremetal node set "$name" --boot-interface redfish-virtual-media --deploy-interface ramdisk \
     --instance-info boot_iso="http://localhost/images/${ISO}"
     baremetal node set "$name" --no-automated-clean

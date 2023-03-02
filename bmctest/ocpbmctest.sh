@@ -7,7 +7,6 @@ set -eu
 
 # defaults
 RELEASE="4.13"
-# FIXME get pull secret from install-config instead?
 PULL_SECRET="/opt/dev-scripts/pull_secret.json"
 
 function usage {
@@ -53,9 +52,9 @@ trap "cleanup" EXIT
 
 timestamp "extracting the provisioning interface from $CONFIGFILE"
 INTERFACE=$(yq -r '.platform.baremetal.provisioningBridge' "$CONFIGFILE")
-if [[ -z $INTERFACE || $INTERFACE = "Disabled" ]]; then
-    timestamp "WARNING: found no provision interface in config, defaulting to 'ostestbm'"
-    INTERFACE="ostestbm"
+if [[ -z "$INTERFACE" || $INTERFACE = "null" ]]; then
+    timestamp "WARNING: found no provision interface in config, defaulting to 'externalBridge'"
+    INTERFACE=$(yq -r '.platform.baremetal.externalBridge' "$CONFIGFILE")
 fi
 
 timestamp "extracting the hosts from $CONFIGFILE"
