@@ -47,9 +47,12 @@ function timestamp {
 }
 export -f timestamp
 
+ERROR_FILE=$(mktemp)
+export ERROR_FILE
 function cleanup {
     timestamp "cleaning up - removing container"
     sudo podman rm -f -t 0 bmctest
+    rm -rf "$ERROR_FILE"
 }
 trap "cleanup" EXIT
 
@@ -88,9 +91,6 @@ sudo podman exec -d bmctest bash -c "runironic > /tmp/ironic.log 2>&1"
 timestamp "starting httpd process"
 sudo podman exec -d bmctest bash -c "/bin/runhttpd > /tmp/httpd.log 2>&1"
 
-export EXIT=0
-export ERRORS=""
-
 # FIXME - take --wait as argument to script
 # create function for repeated "if EXIT ERRORS return" code
 function test_manage {
@@ -102,8 +102,7 @@ function test_manage {
         --name "${name}" > /dev/null
     echo -n "    " # indent baremetal output
     if ! baremetal node manage "${name}" --wait 60; then
-        EXIT=$((EXIT + 1))
-        ERRORS+="can not manage node ${name}\n"
+        echo "can not manage node ${name}" > "$ERROR_FILE"
         return 1
     fi
 }
@@ -113,8 +112,7 @@ function test_power {
     local name=$1
     for power in on off; do
         if ! baremetal node power "$power" "$name" --power-timeout 60; then
-            EXIT=$((EXIT + 1))
-            ERRORS+="can not power $power ${name}\n"
+            echo "can not power $power ${name}" > "$ERROR_FILE"
             return 1
         fi
     done
@@ -131,8 +129,7 @@ function test_boot_vmedia {
     baremetal node provide --wait 60 "$name"
     echo -n "    " # indent baremetal output
     if ! baremetal node deploy --wait 120 "$name"; then
-        EXIT=$((EXIT + 1))
-        ERROS+="failed to boot node $name from ISO"
+        echo "failed to boot node $name from ISO" > "$ERROR_FILE"
         return 1
     fi
 }
@@ -143,8 +140,7 @@ function test_boot_device {
     # this is called after boot_vmedia which sets the boot device as cdrom
     # so we test with setting it to pxe
     if ! baremetal node boot device set "$name" pxe; then
-        EXIT=$((EXIT + 1))
-        ERROS+="failed to switch boot device to PXE on $name"
+        echo "failed to switch boot device to PXE on $name" > "$ERROR_FILE"
         return 1
     fi
 }
@@ -153,8 +149,7 @@ export -f test_boot_device
 function test_eject_media {
    local name=$1
    if ! baremetal node passthru call "$name" eject_vmedia; then
-        EXIT=$((EXIT + 1))
-        ERROS+="failed to eject media on $name"
+        echo "failed to eject media on $name" > "$ERROR_FILE"
         return 1
     fi
 }
@@ -162,38 +157,44 @@ export -f test_eject_media
 
 function test_node {
     local name=$1; local address=$2; local systemid=$3; local user=$4; local pass=$5
-    echo; timestamp "===== $name ====="
+    echo; echo "===== $name ====="
 
     timestamp "attempting to manage $name (check address & credentials)"
     if test_manage "$name" "$address" "$systemid" "$user" "$pass"; then
        echo "    success"
     else
+       echo "    failed to manage $name - can not run further tests on node"
        return 0
     fi
 
     timestamp "testing ability to power on/off $name"
-    test_power "$name" && echo "    success"
+    if test_power "$name"; then
+        echo "    success"
+    fi
 
     timestamp "testing booting from redfish-virtual-media on $name"
     if test_boot_vmedia "$name"; then
         echo "    success"
-    else
-       return 0
     fi
 
     timestamp "verifying node boot device can be set on $name"
-    test_boot_device "$name" && echo "    success"
+    if test_boot_device "$name"; then
+        echo "    success"
+    fi
 
     timestamp "testing vmedia detach on $name"
-    test_eject_media "$name" && echo "    success"
+    if test_eject_media "$name"; then
+        echo "    success"
+    fi
 }
 export -f test_node
 
-timestamp "starting the tests, please wait for results ..."
+timestamp "testing, can take several minutes, please wait for results ..."
 yq -r '.hosts[] | "\(.name) \(.bmc.address) \(.bmc.systemid) \(.bmc.username) \(.bmc.password)"' "$CONFIGFILE" | \
     parallel --colsep ' ' -a - test_node
 
-# FIXME - need to rework error handling to work with parallel
-echo; timestamp "========== Found $EXIT errors =========="
-echo -e "$ERRORS"
-exit $EXIT
+EXIT=$(wc -l "$ERROR_FILE" | cut -d ' '  -f 1)
+echo; echo "========== Found $EXIT errors =========="
+cat "$ERROR_FILE"
+echo
+exit "$EXIT"
