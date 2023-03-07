@@ -5,9 +5,9 @@ set -eu
 # bmctest.sh tests the hosts from the supplied yaml config file
 # are working with the required ironic opperations (register, power, virtual media)
 
-# FIXME use fedora or other Red Hat image
-export ISO="archlinux-2023.02.01-x86_64.iso"
-ISO_URL="https://geo.mirror.pkgbuild.com/iso/2023.02.01/$ISO"
+# FIXME stable URL?
+export ISO="fedora-coreos-37.20230205.3.0-live.x86_64.iso"
+ISO_URL="https://builds.coreos.fedoraproject.org/prod/streams/stable/builds/37.20230205.3.0/x86_64/$ISO"
 # use the upstream ironic image by default
 IRONICIMAGE="quay.io/metal3-io/ironic:latest"
 
