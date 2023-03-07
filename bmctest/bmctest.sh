@@ -6,7 +6,7 @@ set -eu
 # are working with the required ironic opperations (register, power, virtual media)
 
 # FIXME use fedora or other Red Hat image
-ISO="archlinux-2023.02.01-x86_64.iso"
+export ISO="archlinux-2023.02.01-x86_64.iso"
 ISO_URL="https://geo.mirror.pkgbuild.com/iso/2023.02.01/$ISO"
 # use the upstream ironic image by default
 IRONICIMAGE="quay.io/metal3-io/ironic:latest"
@@ -45,12 +45,20 @@ function timestamp {
     echo -n "$(date +%T) "
     echo "$1"
 }
+export -f timestamp
 
 function cleanup {
     timestamp "cleaning up - removing container"
     sudo podman rm -f -t 0 bmctest
 }
 trap "cleanup" EXIT
+
+timestamp "checking / installing GNU parallel"
+if ! which parallel > /dev/null 2>&1; then
+    sudo dnf install -y parallel
+    mkdir -p ~/.parallel
+    touch ~/.parallel/will-cite
+fi
 
 timestamp "checking / getting ISO image"
 if sudo [ ! -e /srv/ironic/html/images/${ISO} ]; then
@@ -80,12 +88,12 @@ sudo podman exec -d bmctest bash -c "runironic > /tmp/ironic.log 2>&1"
 timestamp "starting httpd process"
 sudo podman exec -d bmctest bash -c "/bin/runhttpd > /tmp/httpd.log 2>&1"
 
-EXIT=0
-ERRORS=""
+export EXIT=0
+export ERRORS=""
 
 # FIXME - take --wait as argument to script
 # create function for repeated "if EXIT ERRORS return" code
-function manage {
+function test_manage {
     local name=$1; local address=$2; local systemid=$3; local user=$4; local pass=$5
     baremetal node create --boot-interface redfish-virtual-media --driver redfish \
         --driver-info redfish_address="${address}" --driver-info redfish_system_id="${systemid}" \
@@ -99,8 +107,9 @@ function manage {
         return 1
     fi
 }
+export -f test_manage
 
-function power {
+function test_power {
     local name=$1
     for power in on off; do
         if ! baremetal node power "$power" "$name" --power-timeout 60; then
@@ -110,8 +119,9 @@ function power {
         fi
     done
 }
+export -f test_power
 
-function boot_vmedia {
+function test_boot_vmedia {
     local name=$1
     # FIXME for Dell we might need idrac-virtualmedia
     baremetal node set "$name" --boot-interface redfish-virtual-media --deploy-interface ramdisk \
@@ -126,8 +136,9 @@ function boot_vmedia {
         return 1
     fi
 }
+export -f test_boot_vmedia
 
-function boot_device {
+function test_boot_device {
     local name=$1
     # this is called after boot_vmedia which sets the boot device as cdrom
     # so we test with setting it to pxe
@@ -137,8 +148,9 @@ function boot_device {
         return 1
     fi
 }
+export -f test_boot_device
 
-function eject_media {
+function test_eject_media {
    local name=$1
    if ! baremetal node passthru call "$name" eject_vmedia; then
         EXIT=$((EXIT + 1))
@@ -146,35 +158,42 @@ function eject_media {
         return 1
     fi
 }
+export -f test_eject_media
 
-# FIXME - use gnu parallel or something of the sort
-while read -r NAME ADDRESS SYSTEMID USERNAME PASSWORD; do
-    echo; timestamp "===== $NAME ====="
+function test_node {
+    local name=$1; local address=$2; local systemid=$3; local user=$4; local pass=$5
+    echo; timestamp "===== $name ====="
 
-    timestamp "attempting to manage $NAME (check address & credentials)"
-    if manage "$NAME" "$ADDRESS" "$SYSTEMID" "$USERNAME" "$PASSWORD"; then
+    timestamp "attempting to manage $name (check address & credentials)"
+    if test_manage "$name" "$address" "$systemid" "$user" "$pass"; then
        echo "    success"
     else
-       continue
+       return 0
     fi
 
-    timestamp "testing ability to power on/off $NAME"
-    power "$NAME" && echo "    success"
+    timestamp "testing ability to power on/off $name"
+    test_power "$name" && echo "    success"
 
-    timestamp "testing booting from redfish-virtual-media on $NAME"
-    if boot_vmedia "$NAME"; then
+    timestamp "testing booting from redfish-virtual-media on $name"
+    if test_boot_vmedia "$name"; then
         echo "    success"
     else
-       continue
+       return 0
     fi
 
-    timestamp "verifying node boot device can be set"
-    boot_device "$NAME" && echo "    success"
+    timestamp "verifying node boot device can be set on $name"
+    test_boot_device "$name" && echo "    success"
 
-    timestamp "testing vmedia detach" # may need to actually provision a live-iso image
-    eject_media "$NAME" && echo "    success"
-done < <(yq -r '.hosts[] | "\(.name) \(.bmc.address) \(.bmc.systemid) \(.bmc.username) \(.bmc.password)"' "$CONFIGFILE")
+    timestamp "testing vmedia detach on $name"
+    test_eject_media "$name" && echo "    success"
+}
+export -f test_node
 
+timestamp "starting the tests, please wait for results ..."
+yq -r '.hosts[] | "\(.name) \(.bmc.address) \(.bmc.systemid) \(.bmc.username) \(.bmc.password)"' "$CONFIGFILE" | \
+    parallel --colsep ' ' -a - test_node
+
+# FIXME - need to rework error handling to work with parallel
 echo; timestamp "========== Found $EXIT errors =========="
 echo -e "$ERRORS"
 exit $EXIT
