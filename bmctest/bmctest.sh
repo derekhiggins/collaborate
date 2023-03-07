@@ -88,10 +88,10 @@ ERRORS=""
 function manage {
     local name=$1; local address=$2; local systemid=$3; local user=$4; local pass=$5
     baremetal node create --boot-interface redfish-virtual-media --driver redfish \
-        --driver-info redfish_address="${address}" \
-        --driver-info redfish_system_id="${systemid}" \
-        --driver-info redfish_verify_ca=False --driver-info redfish_username="${user}" --driver-info redfish_password="${pass}" \
-        --property capabilities='boot_mode:uefi' --name "${name}" > /dev/null
+        --driver-info redfish_address="${address}" --driver-info redfish_system_id="${systemid}" \
+        --driver-info redfish_verify_ca=False --driver-info redfish_username="${user}" \
+        --driver-info redfish_password="${pass}" --property capabilities='boot_mode:uefi' \
+        --name "${name}" > /dev/null
     echo -n "    " # indent baremetal output
     if ! baremetal node manage "${name}" --wait 60; then
         EXIT=$((EXIT + 1))
