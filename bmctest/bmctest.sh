@@ -137,8 +137,6 @@ export -f test_boot_vmedia
 
 function test_boot_device {
     local name=$1
-    # this is called after boot_vmedia which sets the boot device as cdrom
-    # so we test with setting it to pxe
     if ! baremetal node boot device set "$name" pxe; then
         echo "failed to switch boot device to PXE on $name" >> "$ERROR_FILE"
         return 1
@@ -172,13 +170,13 @@ function test_node {
         echo "    success"
     fi
 
-    timestamp "testing booting from redfish-virtual-media on $name"
-    if test_boot_vmedia "$name"; then
+    timestamp "verifying node boot device can be set on $name"
+    if test_boot_device "$name"; then
         echo "    success"
     fi
 
-    timestamp "verifying node boot device can be set on $name"
-    if test_boot_device "$name"; then
+    timestamp "testing booting from redfish-virtual-media on $name"
+    if test_boot_vmedia "$name"; then
         echo "    success"
     fi
 
