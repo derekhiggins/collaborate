@@ -102,7 +102,7 @@ function test_manage {
         --name "${name}" > /dev/null
     echo -n "    " # indent baremetal output
     if ! baremetal node manage "${name}" --wait 60; then
-        echo "can not manage node ${name}" > "$ERROR_FILE"
+        echo "can not manage node ${name}" >> "$ERROR_FILE"
         return 1
     fi
 }
@@ -112,7 +112,7 @@ function test_power {
     local name=$1
     for power in on off; do
         if ! baremetal node power "$power" "$name" --power-timeout 60; then
-            echo "can not power $power ${name}" > "$ERROR_FILE"
+            echo "can not power $power ${name}" >> "$ERROR_FILE"
             return 1
         fi
     done
@@ -129,7 +129,7 @@ function test_boot_vmedia {
     baremetal node provide --wait 60 "$name"
     echo -n "    " # indent baremetal output
     if ! baremetal node deploy --wait 120 "$name"; then
-        echo "failed to boot node $name from ISO" > "$ERROR_FILE"
+        echo "failed to boot node $name from ISO" >> "$ERROR_FILE"
         return 1
     fi
 }
@@ -140,7 +140,7 @@ function test_boot_device {
     # this is called after boot_vmedia which sets the boot device as cdrom
     # so we test with setting it to pxe
     if ! baremetal node boot device set "$name" pxe; then
-        echo "failed to switch boot device to PXE on $name" > "$ERROR_FILE"
+        echo "failed to switch boot device to PXE on $name" >> "$ERROR_FILE"
         return 1
     fi
 }
@@ -149,7 +149,7 @@ export -f test_boot_device
 function test_eject_media {
    local name=$1
    if ! baremetal node passthru call "$name" eject_vmedia; then
-        echo "failed to eject media on $name" > "$ERROR_FILE"
+        echo "failed to eject media on $name" >> "$ERROR_FILE"
         return 1
     fi
 }
